@@ -1,18 +1,24 @@
 package org.vivecraft.client.gui.settings;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.vivecraft.client.gui.framework.GuiVROptionsBase;
 import org.vivecraft.client.gui.framework.VROptionEntry;
 import org.vivecraft.client_vr.settings.VRSettings;
+import org.vivecraft.dialstuff.screen.GuiVRKeyBindsScreen;
 
 public class GuiVRControls extends GuiVROptionsBase {
-    private static final VROptionEntry[] CONTROLS_SETTINGS = new VROptionEntry[]{
+    private final VROptionEntry[] CONTROLS_SETTINGS = new VROptionEntry[]{
         new VROptionEntry(VRSettings.VrOptions.DUMMY, true),
         new VROptionEntry(VRSettings.VrOptions.DUMMY, true),
         new VROptionEntry(VRSettings.VrOptions.DUMMY, true),
         new VROptionEntry(VRSettings.VrOptions.DUMMY, true),
+        new VROptionEntry("vivecraft.options.screen.bindings.button", (button, mousePos) -> {
+            Minecraft.getInstance().setScreen(new GuiVRKeyBindsScreen(this));
+            return true;
+        }),
         new VROptionEntry(VRSettings.VrOptions.REVERSE_HANDS),
         new VROptionEntry(VRSettings.VrOptions.REVERSE_BOW),
         new VROptionEntry(VRSettings.VrOptions.INGAME_BINDINGS_IN_GUI),

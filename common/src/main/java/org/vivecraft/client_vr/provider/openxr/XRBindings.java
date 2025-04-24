@@ -13,10 +13,6 @@ public class XRBindings {
             set.add("/interaction_profiles/oculus/touch_controller");
             return set;
         }
-        if (MCOpenXR.get().session.getCapabilities().XR_HTC_vive_cosmos_controller_interaction) {
-            set.add("/interaction_profiles/htc/vive_cosmos_controller");
-        }
-        set.add("/interaction_profiles/htc/vive_controller");
         return set;
     }
 
@@ -158,7 +154,7 @@ public class XRBindings {
                 return quest2Bindings();
             }
             default -> {
-                return viveBindings();
+                return quest2Bindings();
             }
         }
     }

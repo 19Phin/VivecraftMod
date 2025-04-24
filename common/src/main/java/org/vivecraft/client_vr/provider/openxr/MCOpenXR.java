@@ -27,6 +27,10 @@ import org.vivecraft.client_vr.provider.control.VRInputAction;
 import org.vivecraft.client_vr.provider.control.VRInputActionSet;
 import org.vivecraft.client_vr.render.RenderPass;
 import org.vivecraft.client_vr.settings.VRSettings;
+import org.vivecraft.dialstuff.types.ActionBindingManager;
+import org.vivecraft.dialstuff.types.ActionBindingSettings;
+import org.vivecraft.dialstuff.screen.ClickableWidgetScreen;
+import org.vivecraft.dialstuff.types.ControllerButton;
 
 import javax.annotation.Nullable;
 import java.nio.ByteBuffer;
@@ -252,15 +256,19 @@ public class MCOpenXR extends MCVR {
                     logError(error, "xrSyncActions", "");
                 }
 
-                this.inputActions.values().forEach(this::readNewData);
+                if (false) {
+                    this.inputActions.values().forEach(this::readNewData);
+                } else {
+                    readButtonData(ControllerButton.values());
+                }
 
                 //TODO Not needed it seems? Poses come from the action space
-                XrActionSet actionSet = new XrActionSet(this.actionSetHandles.get(VRInputActionSet.GLOBAL),
-                    this.instance);
-                this.readPoseData(this.grip[RIGHT_CONTROLLER], actionSet);
-                this.readPoseData(this.grip[LEFT_CONTROLLER], actionSet);
-                this.readPoseData(this.aim[RIGHT_CONTROLLER], actionSet);
-                this.readPoseData(this.aim[LEFT_CONTROLLER], actionSet);
+//                XrActionSet actionSet = new XrActionSet(this.actionSetHandles.get(VRInputActionSet.GLOBAL),
+//                    this.instance);
+//                this.readPoseData(this.grip[RIGHT_CONTROLLER], actionSet);
+//                this.readPoseData(this.grip[LEFT_CONTROLLER], actionSet);
+//                this.readPoseData(this.aim[RIGHT_CONTROLLER], actionSet);
+//                this.readPoseData(this.aim[LEFT_CONTROLLER], actionSet);
 
                 Profiler.get().pop();
 
@@ -316,6 +324,170 @@ public class MCOpenXR extends MCVR {
             this.updateAim();
         }
     }
+
+    public void readButtonData(ControllerButton[] buttons) {
+        for (ControllerButton button : buttons) {
+            switch (button.getType()) {
+                case "boolean" -> {
+                    for (ControllerType controllertype1 : ControllerType.values()) {
+                        this.readBoolean2(button, controllertype1);
+                    }
+                }
+
+                case "vector1" -> {
+                    for (ControllerType controllertype : ControllerType.values()) {
+                        this.readFloat2(button, controllertype);
+                    }
+                }
+
+                case "vector2" -> {
+                    for (ControllerType controllertype : ControllerType.values()) {
+                        this.readVecData2(button, controllertype);
+                    }
+                }
+            }
+        }
+    }
+
+    public int skipNextInput; // keep it from taking the input if using it to bind
+
+    private void readBoolean2(ControllerButton button, ControllerType hand) {
+        int i = 0;
+
+        if (hand != null) {
+            i = hand.ordinal();
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            XrActionStateGetInfo info = XrActionStateGetInfo.calloc(stack);
+            info.type(XR10.XR_TYPE_ACTION_STATE_GET_INFO);
+            info.action(new XrAction(button.getHandle(),
+                new XrActionSet(this.actionSetHandles.get(VRInputActionSet.TECHNICAL), this.instance)));
+            XrActionStateBoolean state = XrActionStateBoolean.calloc(stack).type(XR10.XR_TYPE_ACTION_STATE_BOOLEAN);
+            int error = XR10.xrGetActionStateBoolean(this.session, info, state);
+            logError(error, "xrGetActionStateBoolean", button.getFormattedName());
+
+            if (Minecraft.getInstance().screen instanceof ClickableWidgetScreen screen &&
+                    screen.isMappingActive() && ActionBindingManager.isSimpleBindable(button)) {
+                if (state.changedSinceLastSync() && !state.currentState()) {
+                    if (skipNextInput < 1) {
+                        screen.setButton(button);
+                        screen.updateButtons();
+                    } else {
+                        skipNextInput--;
+                    }
+                }
+
+                updateBindings(button, i, hand, state.currentState(), false, state.changedSinceLastSync());
+                return;
+            }
+            updateBindings(button, i, hand, state.currentState(), state.isActive(), state.changedSinceLastSync());
+        }
+    }
+
+    private void updateBindings(ControllerButton button, int i, ControllerType hand,
+        boolean currentState, boolean isActive, boolean changedSinceLastSync) {
+        //todo definitely not correct in some of the states
+        List<ActionBindingSettings> bindings = ActionBindingManager.getBindingsForButton(button, currentState);
+        for (ActionBindingSettings settings : bindings) {
+            VRInputAction vrAction = settings.getVrInputAction();
+            if (!activeActionSets.contains(vrAction.actionSet)) {
+                continue;
+            }
+            VRInputAction.DigitalData data = vrAction.digitalData[i];
+
+            if (!currentState) {
+                settings.resetHeldTimer();
+            }
+
+            if (settings.longHold()) {
+                currentState = settings.isLong();
+                if (!data.state) {
+                    changedSinceLastSync = true;
+                }
+            }
+
+            if (settings.shortHold()) {
+                currentState = !settings.isLong();
+            }
+
+            if (settings.toggleable() && changedSinceLastSync && currentState && isActive) {
+                currentState = settings.toggle();
+            }
+
+            if (settings.isSingle()) {
+                currentState = currentState && changedSinceLastSync;
+            }
+
+            data.state = currentState;
+            data.isActive = isActive;
+            data.isChanged = changedSinceLastSync;
+            data.activeOrigin = button.getHandle();
+            float hapticDuration = settings.getHapticDuration();
+            if (hapticDuration > 0) {
+                triggerHapticPulse(hand, hapticDuration, settings.getHapticFrequency(), settings.getHapticAmplitude());
+            }
+        }
+    }
+
+    private void readFloat2(ControllerButton button, ControllerType hand) {
+        int i = 0;
+
+        if (hand != null) {
+            i = hand.ordinal();
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            XrActionStateGetInfo info = XrActionStateGetInfo.calloc(stack);
+            info.type(XR10.XR_TYPE_ACTION_STATE_GET_INFO);
+            info.action(new XrAction(button.getHandle(),
+                new XrActionSet(this.actionSetHandles.get(VRInputActionSet.TECHNICAL), this.instance)));
+            XrActionStateFloat state = XrActionStateFloat.calloc(stack).type(XR10.XR_TYPE_ACTION_STATE_FLOAT);
+            int error = XR10.xrGetActionStateFloat(this.session, info, state);
+            logError(error, "xrGetActionStateFloat", button.getFormattedName());
+
+            for (ActionBindingSettings settings : ActionBindingManager.getBindingsForButton(button)) {
+                if (activeActionSets.contains(settings.getVrInputAction().actionSet)) {
+                    settings.getVrInputAction().analogData[i].deltaX =
+                        state.currentState() - settings.getVrInputAction().analogData[i].x;
+                    settings.getVrInputAction().analogData[i].x = state.currentState();
+                    settings.getVrInputAction().analogData[i].activeOrigin = button.getHandle();
+                    settings.getVrInputAction().analogData[i].isActive = state.isActive();
+                    settings.getVrInputAction().analogData[i].isChanged = state.changedSinceLastSync();
+                }
+            }
+        }
+    }
+
+    private void readVecData2(ControllerButton button, ControllerType hand) {
+        int i = 0;
+
+        if (hand != null) {
+            i = hand.ordinal();
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            XrActionStateGetInfo info = XrActionStateGetInfo.calloc(stack);
+            info.type(XR10.XR_TYPE_ACTION_STATE_GET_INFO);
+            info.action(new XrAction(button.getHandle(),
+                new XrActionSet(this.actionSetHandles.get(VRInputActionSet.TECHNICAL), this.instance)));
+            XrActionStateVector2f state = XrActionStateVector2f.calloc(stack).type(XR10.XR_TYPE_ACTION_STATE_VECTOR2F);
+            int error = XR10.xrGetActionStateVector2f(this.session, info, state);
+            logError(error, "xrGetActionStateVector2f", button.getFormattedName());
+
+            for (ActionBindingSettings settings : ActionBindingManager.getBindingsForButton(button)) {
+                if (activeActionSets.contains(settings.getVrInputAction().actionSet)) {
+                    settings.getVrInputAction().analogData[i].deltaX =
+                        state.currentState().x() - settings.getVrInputAction().analogData[i].x;
+                    settings.getVrInputAction().analogData[i].deltaY =
+                        state.currentState().y() - settings.getVrInputAction().analogData[i].y;
+                    settings.getVrInputAction().analogData[i].x = state.currentState().x();
+                    settings.getVrInputAction().analogData[i].y = state.currentState().y();
+                    settings.getVrInputAction().analogData[i].activeOrigin = button.getHandle();
+                    settings.getVrInputAction().analogData[i].isActive = state.isActive();
+                    settings.getVrInputAction().analogData[i].isChanged = state.changedSinceLastSync();
+                }
+            }
+        }
+    }
+
 
     public void readNewData(VRInputAction action) {
         switch (action.type) {
@@ -432,44 +604,51 @@ public class MCOpenXR extends MCVR {
         }
     }
 
+    ArrayList<VRInputActionSet> activeActionSets = new ArrayList<>();
     private boolean updateActiveActionSets() {
-        ArrayList<VRInputActionSet> arraylist = new ArrayList<>();
-        arraylist.add(VRInputActionSet.GLOBAL);
+        activeActionSets = new ArrayList<>();
+        activeActionSets.add(VRInputActionSet.GLOBAL);
 
         // we are always modded
-        arraylist.add(VRInputActionSet.MOD);
+        activeActionSets.add(VRInputActionSet.MOD);
 
-        arraylist.add(VRInputActionSet.MIXED_REALITY);
-        arraylist.add(VRInputActionSet.TECHNICAL);
+        activeActionSets.add(VRInputActionSet.MIXED_REALITY);
+        activeActionSets.add(VRInputActionSet.TECHNICAL);
 
         if (this.mc.screen == null) {
-            arraylist.add(VRInputActionSet.INGAME);
-            arraylist.add(VRInputActionSet.CONTEXTUAL);
+            activeActionSets.add(VRInputActionSet.INGAME);
+            activeActionSets.add(VRInputActionSet.CONTEXTUAL);
         } else {
-            arraylist.add(VRInputActionSet.GUI);
+            activeActionSets.add(VRInputActionSet.GUI);
             if (ClientDataHolderVR.getInstance().vrSettings.ingameBindingsInGui) {
-                arraylist.add(VRInputActionSet.INGAME);
+                activeActionSets.add(VRInputActionSet.INGAME);
             }
         }
 
         if (KeyboardHandler.SHOWING || RadialHandler.isShowing()) {
-            arraylist.add(VRInputActionSet.KEYBOARD);
+            activeActionSets.add(VRInputActionSet.KEYBOARD);
         }
 
         if (this.activeActionSetsBuffer == null) {
-            this.activeActionSetsBuffer = XrActiveActionSet.calloc(arraylist.size());
-        } else if (this.activeActionSetsBuffer.capacity() != arraylist.size()) {
+            this.activeActionSetsBuffer = XrActiveActionSet.calloc(activeActionSets.size());
+        } else if (this.activeActionSetsBuffer.capacity() != activeActionSets.size()) {
             this.activeActionSetsBuffer.close();
-            this.activeActionSetsBuffer = XrActiveActionSet.calloc(arraylist.size());
+            this.activeActionSetsBuffer = XrActiveActionSet.calloc(activeActionSets.size());
         }
 
-        for (int i = 0; i < arraylist.size(); ++i) {
-            VRInputActionSet vrinputactionset = arraylist.get(i);
-            this.activeActionSetsBuffer.get(i)
+        if (true) {
+            for (int i = 0; i < activeActionSets.size(); ++i) {
+                VRInputActionSet vrinputactionset = activeActionSets.get(i);
+                this.activeActionSetsBuffer.get(i)
+                    .set(new XrActionSet(this.getActionSetHandle(vrinputactionset), this.instance), NULL);
+            }
+        } else {
+            VRInputActionSet vrinputactionset = activeActionSets.get(3);
+            this.activeActionSetsBuffer.get(3)
                 .set(new XrActionSet(this.getActionSetHandle(vrinputactionset), this.instance), NULL);
         }
 
-        return !arraylist.isEmpty();
+        return !activeActionSets.isEmpty();
     }
 
     long getActionSetHandle(VRInputActionSet actionSet) {
@@ -896,8 +1075,13 @@ public class MCOpenXR extends MCVR {
 
         //this.generateActionManifest();
         //this.loadActionManifest();
-        this.loadActionHandles();
-        this.loadDefaultBindings();
+        if (false) {
+            this.loadActionHandles();
+            this.loadDefaultBindings();
+        } else {
+            this.loadActionHandles2();
+            this.loadDefaultBindings2();
+        }
         //this.installApplicationManifest(false);
         this.inputInitialized = true;
         initDisplayRefreshRate();
@@ -1217,6 +1401,146 @@ public class MCOpenXR extends MCVR {
         }
         b.rewind();
         return b;
+    }
+
+    private void loadActionHandles2() {
+        for (VRInputActionSet vrinputactionset : VRInputActionSet.values()) {
+            long actionSet = makeActionSet(this.instance, vrinputactionset.name, vrinputactionset.localizedName, 0);
+            this.actionSetHandles.put(vrinputactionset, actionSet);
+        }
+        long actionSetHandle = actionSetHandles.get(VRInputActionSet.TECHNICAL);
+
+        for (ControllerButton button : ControllerButton.values()) {
+            long action = createAction(button.getName(), button.getFormattedName(), button.getType(),
+                new XrActionSet(actionSetHandle, this.instance), BOTH_HANDS);
+            button.setHandle(action);
+        }
+
+        XrActionSet actionSet = new XrActionSet(actionSetHandle, this.instance);
+        this.grip[RIGHT_CONTROLLER] = createAction("/actions/global/in/righthand", "/actions/global/in/righthand",
+            "pose", actionSet, BOTH_HANDS);
+        this.grip[LEFT_CONTROLLER] = createAction("/actions/global/in/lefthand", "/actions/global/in/lefthand", "pose",
+            actionSet, BOTH_HANDS);
+        this.aim[RIGHT_CONTROLLER] = createAction("/actions/global/in/righthandaim", "/actions/global/in/righthandaim",
+            "pose", actionSet, BOTH_HANDS);
+        this.aim[LEFT_CONTROLLER] = createAction("/actions/global/in/lefthandaim", "/actions/global/in/lefthandaim",
+            "pose", actionSet, BOTH_HANDS);
+
+        this.haptics[RIGHT_CONTROLLER] = createAction("/actions/global/out/righthaptic",
+            "/actions/global/out/righthaptic", "haptic", actionSet, BOTH_HANDS);
+        this.haptics[LEFT_CONTROLLER] = createAction("/actions/global/out/lefthaptic", "/actions/global/out/lefthaptic",
+            "haptic", actionSet, BOTH_HANDS);
+    }
+
+    public void loadDefaultBindings2() {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            int error;
+            for (String headset : XRBindings.supportedHeadsets()) {
+                VRSettings.LOGGER.info("loading defaults for {}", headset);
+                Map<ControllerButton, String> buttons = ActionBindingManager.pathsForHeadset(headset);
+                XrActionSuggestedBinding.Buffer bindings = XrActionSuggestedBinding.calloc(buttons.size() + 6,
+                    stack); //TODO different way of adding controller poses
+
+                int i = 0;
+                VRSettings.LOGGER.info(String.valueOf(buttons.size()));
+                for (Map.Entry<ControllerButton, String> entry : buttons.entrySet()) {
+                    ControllerButton button = entry.getKey();
+                    String path = entry.getValue();
+
+                    if (button.getHandle() == 0L) {
+                        VRSettings.LOGGER.error("Handle for '{}' is null", button.getFormattedName());
+                        continue;
+                    }
+                    VRSettings.LOGGER.info(path);
+
+                    bindings.get(i).set(
+                        new XrAction(button.getHandle(), new XrActionSet(this.actionSetHandles.get(VRInputActionSet.TECHNICAL), this.instance)),
+                        getPath(path)
+                    );
+                    i++;
+                }
+
+                //TODO make this also changeable?
+                XrActionSet actionSet = new XrActionSet(this.actionSetHandles.get(VRInputActionSet.TECHNICAL),
+                    this.instance);
+                bindings.get(buttons.size()).set(
+                    new XrAction(this.grip[RIGHT_CONTROLLER], actionSet),
+                    getPath("/user/hand/right/input/grip/pose")
+                );
+                bindings.get(buttons.size() + 1).set(
+                    new XrAction(this.grip[LEFT_CONTROLLER], actionSet),
+                    getPath("/user/hand/left/input/grip/pose")
+                );
+                bindings.get(buttons.size() + 2).set(
+                    new XrAction(this.aim[RIGHT_CONTROLLER], actionSet),
+                    getPath("/user/hand/right/input/aim/pose")
+                );
+                bindings.get(buttons.size() + 3).set(
+                    new XrAction(this.aim[LEFT_CONTROLLER], actionSet),
+                    getPath("/user/hand/left/input/aim/pose")
+                );
+
+                bindings.get(buttons.size() + 4).set(
+                    new XrAction(this.haptics[RIGHT_CONTROLLER], actionSet),
+                    getPath("/user/hand/right/output/haptic")
+                );
+
+                bindings.get(buttons.size() + 5).set(
+                    new XrAction(this.haptics[LEFT_CONTROLLER], actionSet),
+                    getPath("/user/hand/left/output/haptic")
+                );
+
+                XrInteractionProfileSuggestedBinding suggested_binds = XrInteractionProfileSuggestedBinding.calloc(
+                    stack);
+                suggested_binds.type(XR10.XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING);
+                suggested_binds.next(NULL);
+                suggested_binds.interactionProfile(getPath(headset));
+                suggested_binds.suggestedBindings(bindings);
+
+                error = XR10.xrSuggestInteractionProfileBindings(this.instance, suggested_binds);
+                logError(error, "xrSuggestInteractionProfileBindings", headset);
+            }
+
+
+            XrSessionActionSetsAttachInfo attach_info = XrSessionActionSetsAttachInfo.calloc(stack);
+            attach_info.type(XR10.XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO);
+            attach_info.next(NULL);
+            attach_info.actionSets(
+                stackPointers(this.actionSetHandles.values().stream().mapToLong(value -> value).toArray()));
+
+            error = XR10.xrAttachSessionActionSets(this.session, attach_info);
+            logError(error, "xrAttachSessionActionSets", "");
+
+            XrActionSet actionSet = new XrActionSet(this.actionSetHandles.get(VRInputActionSet.TECHNICAL), this.instance);
+            XrActionSpaceCreateInfo actionSpace = XrActionSpaceCreateInfo.calloc(stack);
+            actionSpace.type(XR10.XR_TYPE_ACTION_SPACE_CREATE_INFO);
+            actionSpace.next(NULL);
+            actionSpace.action(new XrAction(this.grip[RIGHT_CONTROLLER], actionSet));
+            actionSpace.subactionPath(getPath("/user/hand/right"));
+            actionSpace.poseInActionSpace(POSE_IDENTITY);
+            PointerBuffer pp = stackCallocPointer(1);
+            error = XR10.xrCreateActionSpace(this.session, actionSpace, pp);
+            logError(error, "xrCreateActionSpace", "grip: /user/hand/right");
+            this.gripSpace[RIGHT_CONTROLLER] = new XrSpace(pp.get(0), this.session);
+
+            actionSpace.action(new XrAction(this.grip[LEFT_CONTROLLER], actionSet));
+            actionSpace.subactionPath(getPath("/user/hand/left"));
+            error = XR10.xrCreateActionSpace(this.session, actionSpace, pp);
+            logError(error, "xrCreateActionSpace", "grip: /user/hand/left");
+            this.gripSpace[LEFT_CONTROLLER] = new XrSpace(pp.get(0), this.session);
+
+            actionSpace.action(new XrAction(this.aim[RIGHT_CONTROLLER], actionSet));
+            actionSpace.subactionPath(getPath("/user/hand/right"));
+            error = XR10.xrCreateActionSpace(session, actionSpace, pp);
+            logError(error, "xrCreateActionSpace", "aim: /user/hand/right");
+            this.aimSpace[RIGHT_CONTROLLER] = new XrSpace(pp.get(0), this.session);
+
+            actionSpace.action(new XrAction(this.aim[LEFT_CONTROLLER], actionSet));
+            actionSpace.subactionPath(getPath("/user/hand/left"));
+            error = XR10.xrCreateActionSpace(this.session, actionSpace, pp);
+            logError(error, "xrCreateActionSpace", "aim: /user/hand/left");
+            this.aimSpace[LEFT_CONTROLLER] = new XrSpace(pp.get(0), this.session);
+        }
     }
 
     /**

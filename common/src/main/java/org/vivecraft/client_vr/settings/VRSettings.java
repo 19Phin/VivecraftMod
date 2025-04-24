@@ -123,6 +123,15 @@ public class VRSettings {
         NONE
     }
 
+    public enum ActionMode implements OptionEnum<ActionMode> {
+        SINGLE,
+        DOUBLE,
+        LONG,
+        HELD,
+        TOGGLE,
+        TOGGLE_HELD
+    }
+
     public enum WeaponCollision implements OptionEnum<WeaponCollision> {
         OFF,
         ON,
@@ -264,6 +273,25 @@ public class VRSettings {
     public boolean thirdPersonItems = false;
     @SettingField(VrOptions.THIRDPERSON_ITEMTRANSFORMS_CUSTOM)
     public boolean thirdPersonItemsCustom = true;
+    //
+
+    // Keybind
+    @SettingField(VrOptions.ACTION_MODE)
+    public ActionMode actionMode = ActionMode.SINGLE;
+    @SettingField(VrOptions.ACTION_TOUCH)
+    public boolean actionTouch = false;
+    @SettingField(VrOptions.ACTION_HOLD_TOUCH)
+    public boolean actionHoldTouch = false;
+    @SettingField(VrOptions.ACTION_HAPTIC_AMPLITUDE)
+    public int actionHapticAmplitude = 20;
+    @SettingField(VrOptions.ACTION_HAPTIC_DURATION)
+    public float actionHapticDuration = 0;
+    @SettingField(VrOptions.ACTION_HAPTIC_FREQUENCY)
+    public int actionHapticFrequency = 25;
+    @SettingField(VrOptions.ACTION_ACTIVATION_THRESHOLD)
+    public int actionActivationThreshold = 25;
+    @SettingField(VrOptions.ACTION_DEACTIVATION_THRESHOLD)
+    public int actionDeactivationThreshold = 20;
     //
 
     // Locomotion
@@ -1617,6 +1645,26 @@ public class VRSettings {
                 }
             }
         },
+        ACTION_MODE(false, false) {
+
+            @Override
+            Object convertOption(String value) {
+                // TODO: remove conversion in the future
+                try {
+                    int ord = Integer.parseInt(value);
+                    return ActionMode.values()[ord];
+                } catch (NumberFormatException ex) {
+                    return null;
+                }
+            }
+        },
+        ACTION_TOUCH(false, true),
+        ACTION_HOLD_TOUCH(false, true),
+        ACTION_HAPTIC_AMPLITUDE(true, false, 0f, 100f, 5f, 0),
+        ACTION_HAPTIC_DURATION(true, false, 0f, 4f, 0.1f, 1),
+        ACTION_HAPTIC_FREQUENCY(true, false, 15f, 3000f, 1f, 0),
+        ACTION_ACTIVATION_THRESHOLD(true, false, 0f, 100f, 5f, 0),
+        ACTION_DEACTIVATION_THRESHOLD(true, false, 0f, 100f, 5f, 0),
         // VIVE START - new options
         SIMULATE_FALLING(false, true), // Simulate falling
         WEAPON_COLLISION(false, true) { // Weapon collision

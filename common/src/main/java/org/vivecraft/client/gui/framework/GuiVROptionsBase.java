@@ -1,9 +1,9 @@
 package org.vivecraft.client.gui.framework;
 
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractSelectionList;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.language.I18n;
@@ -24,11 +24,11 @@ public abstract class GuiVROptionsBase extends Screen {
     protected final VRSettings vrSettings;
     protected boolean reinit;
     protected boolean drawDefaultButtons = true;
-    protected ObjectSelectionList visibleList = null;
+    protected AbstractSelectionList visibleList = null;
     private int nextButtonIndex = 0;
     public String vrTitle = "Title";
     private Button btnDone;
-    private Button btnDefaults;
+    protected Button btnDefaults;
 
     public GuiVROptionsBase(Screen lastScreen) {
         super(Component.literal(""));

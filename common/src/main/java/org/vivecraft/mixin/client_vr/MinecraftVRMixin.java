@@ -78,6 +78,7 @@ import org.vivecraft.client_vr.settings.VRHotkeys;
 import org.vivecraft.client_vr.settings.VRSettings;
 import org.vivecraft.client_xr.render_pass.RenderPassManager;
 import org.vivecraft.common.network.packet.c2s.VRActivePayloadC2S;
+import org.vivecraft.dialstuff.types.ActionBindingManager;
 import org.vivecraft.mod_compat_vr.optifine.OptifineHelper;
 
 import java.io.File;
@@ -547,6 +548,7 @@ public abstract class MinecraftVRMixin implements MinecraftExtension {
             for (VRInputAction vrinputaction : ClientDataHolderVR.getInstance().vr.getInputActions()) {
                 vrinputaction.tick();
             }
+            ActionBindingManager.tick();
 
             if (this.level != null && ClientDataHolderVR.getInstance().vrPlayer != null) {
                 ClientDataHolderVR.getInstance().vrPlayer.updateFreeMove();

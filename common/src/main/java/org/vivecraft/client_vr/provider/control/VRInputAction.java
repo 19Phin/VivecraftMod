@@ -219,16 +219,31 @@ public class VRInputAction {
 
         if (hand == null && this.isHanded()) return false;
 
-        // iterate over all actions, and check if another action has a higher priority
-        for (VRInputAction action : ClientDataHolderVR.getInstance().vr.getInputActions()) {
-            if (action != this && action.isEnabledRaw(hand) && action.isActive() &&
-                action.getPriority() > this.getPriority() &&
-                ClientDataHolderVR.getInstance().vr.getOrigins(action).contains(lastOrigin))
-            {
-                if (action.isHanded()) {
-                    return !((HandedKeyBinding) action.keyBinding).isPriorityOnController(hand);
+        if (false) {
+            // iterate over all actions, and check if another action has a higher priority
+            for (VRInputAction action : ClientDataHolderVR.getInstance().vr.getInputActions()) {
+                if (action != this && action.isEnabledRaw(hand) && action.isActive() &&
+                    action.getPriority() > this.getPriority() &&
+                    ClientDataHolderVR.getInstance().vr.getOrigins(action).contains(lastOrigin))
+                {
+                    if (action.isHanded()) {
+                        return !((HandedKeyBinding) action.keyBinding).isPriorityOnController(hand);
+                    }
+                    return false;
                 }
-                return false;
+            }
+        } else {
+            // iterate over all actions, and check if another action has a higher priority
+            for (VRInputAction action : ClientDataHolderVR.getInstance().vr.getInputActions()) {
+                if (action != this && action.isEnabledRaw(hand) && action.isActive() &&
+                    action.getPriority() > this.getPriority() &&
+                    false)//todo is this right?
+                {
+                    if (action.isHanded()) {
+                        return !((HandedKeyBinding) action.keyBinding).isPriorityOnController(hand);
+                    }
+                    return false;
+                }
             }
         }
 
